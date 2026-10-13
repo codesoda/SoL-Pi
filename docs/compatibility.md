@@ -1,6 +1,8 @@
 # Pi Compatibility
 
-SoL-Pi is developed and tested against `@earendil-works/pi-coding-agent` 0.85.1 and remains compatible with the originally supported 0.84.2 release. The current 19 test files (140 tests), type checking, package inspection, public API checks, and offline extension startup passed on both releases. Previous checks covered the public API surface of Pi 0.81.1, the base used by the original Pi fork; they are not a current full-suite compatibility guarantee. The runtime range is deliberately expressed as a peer dependency because Pi owns installation and upgrade of its packages; it is not a guarantee for every Pi version.
+This fork targets `@earendil-works/pi-coding-agent` 1.2.0. Its four Pi development dependencies are pinned to 1.2.0, and its runtime Pi peer dependencies require `^1.2.0`. Older Pi releases are outside this branch's support range; upstream's earlier 0.84.2/0.85.1 results do not establish compatibility for this branch.
+
+Run `npm ci --ignore-scripts`, `npm run check`, `node scripts/check-pi-compat.mjs`, and `npm audit --audit-level=high` to validate the pinned dependency set. CI runs these checks on Node 22.19.0 and Node 24. The suite includes real Pi sessions and CLI runs using a deterministic faux provider; it makes no paid model calls and does not measure provider-specific savings.
 
 SoL-Pi imports only public package exports:
 
@@ -13,7 +15,17 @@ SoL-Pi imports only public package exports:
 - `ExtensionContext.model` and `ExtensionContext.modelRegistry`
 - the public session-manager methods exposed through `ExtensionContext`
 
+## Upstream reports
+
+Upstream [issue #94](https://github.com/NVlabs/SoL-Pi/issues/94) reports false success for failed fused commands. Open [PR #95](https://github.com/NVlabs/SoL-Pi/pull/95) addresses that failure; open [PR #105](https://github.com/NVlabs/SoL-Pi/pull/105) targets Pi 1.2.0 and also changes Windows shell inheritance. This branch independently handles the resolved-error result and tool-context changes described there. It does not include PR #105's Windows shell changes; Windows execution has not been validated here.
+
+Upstream [PR #98](https://github.com/NVlabs/SoL-Pi/pull/98) separately addresses preservation of terminal status when reducing truncated logs. That existing reducer limitation is not fixed by this compatibility update.
+
 ## Action Fusion
+
+Pi 1.2 passes `ExtensionToolContext` to tool executors. Action Fusion forwards this context unchanged to the built-in definitions, including the new `tools` and `executeTool` capabilities. Its direct built-in delegation is unchanged; it does not route fused commands through the registered-tool pipeline.
+
+Pi 1.2's bash tool resolves non-zero exits with `isError: true` and structured exit metadata. It still throws on timeout or cancellation. Action Fusion handles both failure forms, keeps the successful edit or write, and reports `[then_run:failed]` rather than a success marker. It uses the error flag, never a text match on command output. A mutation returned with `isError: true` also prevents the follow-up command from running.
 
 The built-in edit/write definitions capture their working directory, so SoL-Pi caches one definition per `ctx.cwd`. Its own per-file queue surrounds the built-in mutation and follow-up command. It does not nest Pi's built-in mutation queue.
 
@@ -29,9 +41,11 @@ ObservationPack changes only the messages projected through the public `context`
 
 ## Evidence-Preserving Reducer
 
-The reducer handles public `tool_result` events and resolves the configured reducer provider/model through Pi's model registry before calling `ExtensionContext.modelRegistry.complete()` when available. For the Pi 0.81.1 fork, which exposes no registry `complete()` method, it resolves authentication for that reducer model through `getApiKeyAndHeaders()` and calls the shared `@earendil-works/pi-ai/compat` completion API. The reducer preserves the original result whenever the configured reducer model is unavailable or eligibility, model-call, schema, source-hash, exact-quote, size, or likely-secret checks fail.
+The reducer handles public `tool_result` events and resolves the configured reducer provider/model through Pi's model registry before calling `ExtensionContext.modelRegistry.complete()` when available. Otherwise it resolves authentication for that reducer model through `getApiKeyAndHeaders()` and calls the shared `@earendil-works/pi-ai/compat` completion API. The reducer preserves the original result whenever the configured reducer model is unavailable or eligibility, model-call, schema, source-hash, exact-quote, size, or likely-secret checks fail.
 
-All persistent paths use `SessionManager.getSessionDir()` and `getSessionId()`, which are present in both the fork and Pi 0.85.1. If the session directory is empty (`--no-session` or `SessionManager.inMemory()`), SoL-Pi lazily creates a private `sol-pi-<session-id>-<random>/` directory under `os.tmpdir()`. Its path is reused by session ID across contexts and both archiving mechanisms while the extension is loaded. These files remain available after worker shutdown for callers that need to read evidence; cleanup is left to the host or caller. SoL-Pi creates no configurable storage-path surface.
+Pi 1.2 also emits results for nested calls made through `ctx.executeTool`, including codemode calls. The reducer skips any result with `parentToolCallId`: the calling tool needs its original text and structured execution data, not a model-facing receipt. These calls create no evidence archive or reducer request. For direct model calls, returning replacement content intentionally lets Pi discard the original structured payload alongside the reduced text.
+
+All persistent paths use `SessionManager.getSessionDir()` and `getSessionId()`, which are present in Pi 1.2.0. If the session directory is empty (`--no-session` or `SessionManager.inMemory()`), SoL-Pi lazily creates a private `sol-pi-<session-id>-<random>/` directory under `os.tmpdir()`. Its path is reused by session ID across contexts and both archiving mechanisms while the extension is loaded. These files remain available after worker shutdown for callers that need to read evidence; cleanup is left to the host or caller. SoL-Pi creates no configurable storage-path surface.
 
 The unpublished shared artifact layout is not read or migrated. Each persistent session starts from its own `<sessionDir>/sol-pi/<sessionId>/` directory; ephemeral sessions use the temporary fallback above.
 
@@ -43,13 +57,13 @@ The native cut is selected from session entries, while removable-token savings a
 
 Compaction preserves the current plan, request-horizon samples, and context-growth history. Every plan update uses the same step-ID/status comparison, including the first update after compaction. A boundary requires a previously registered unfinished step to become completed. Newly introduced completed IDs establish history without creating a boundary, so re-keyed completed snapshots do not retrigger compaction. An assistant must register a step before completing it to make that completion eligible for OCC. Economic compaction has a two-provider-request cooldown; context-window protection can override it. A new user task following a fully completed plan resets the request-horizon samples while preserving unpaid cache debt.
 
-Pi does not expose its active retained-tail compaction setting through the public extension context. The standalone extension therefore uses the Pi 0.85.1 default of 20,000 tokens for its economic estimate. Its programmatic factory accepts an explicit matching value for a non-default Pi setting.
+Pi does not expose its active retained-tail compaction setting through the public extension context. The standalone extension therefore uses Pi's default of 20,000 tokens for its economic estimate. Its programmatic factory accepts an explicit matching value for a non-default Pi setting.
 
-Pi 0.85.1's `ExtensionContext.compact()` aborts the active agent before it summarizes, and `agent_settled` fires only once a whole run has drained every turn, retry, auto-compaction, and queued continuation. A plan boundary that selects compaction therefore saves its plan and progress state, calls `ExtensionContext.abort()` to stop the run, and runs compaction from the `agent_settled` that stop produces. The handler awaits the compaction's own `onComplete`/`onError` callbacks. On success, the extension sends a hidden reminder through public `ExtensionAPI.sendMessage()` with `triggerTurn: true`, so Pi starts a new turn against the compacted context and continues the current plan. The reminder asks it to preserve existing step IDs when updating progress; an immediate plan update is not required.
+Pi 1.2.0's `ExtensionContext.compact()` aborts the active agent before it summarizes. OCC waits for the interrupted run's `agent_settled` notification before requesting compaction. A plan boundary that selects compaction therefore saves its plan and progress state, calls `ExtensionContext.abort()` to stop the run, and runs compaction from the `agent_settled` that stop produces. The handler awaits the compaction's own `onComplete`/`onError` callbacks. On success, the extension sends a hidden reminder through public `ExtensionAPI.sendMessage()` with `triggerTurn: true`, so Pi starts a new turn against the compacted context and continues the current plan. The reminder asks it to preserve existing step IDs when updating progress; an immediate plan update is not required.
 
 A settlement barrier keeps the original `agent_settled` dispatch open until a synchronously triggered continuation settles. Print- and JSON-mode processes therefore complete the compact-and-continue sequence within the same Pi invocation; an outer driver does not need to resume the session or send `Continue working`. Successful compaction schedules a continuation. The exact native refusals `Nothing to compact (session too small)` and `Already compacted`, and Pi's explicit incomplete-summary token-cap error, also resume the interrupted task with the existing context. These skips are recorded as `sol-pi-online-context-compact-skipped` entries and shown as TUI warnings; they do not record a compaction or charge new cache debt. Plan-only turns cannot retry compaction until successful non-plan tool work or new user input occurs. Cancelling or exiting does not schedule a continuation. Other compaction errors still propagate.
 
-Pi 0.85.1 does not return a promise from `ExtensionAPI.sendMessage()` and starts the requested turn synchronously, so it uses the extension's settlement barrier. Newer hosts can keep the context idle and defer the turn until settled handlers return; OCC returns control to such a host instead of waiting on the deferred turn or reporting a false start failure. A later-loaded third-party extension that performs long asynchronous work in its own `agent_settled` handler needs an integration test with that extension set.
+Pi 1.2.0 can keep the context idle and defer the requested turn until settled handlers return; OCC returns control to the host instead of waiting on that deferred turn or reporting a false start failure. The synchronous settlement barrier remains for hosts that start the turn immediately. A later-loaded third-party extension that performs long asynchronous work in its own `agent_settled` handler needs an integration test with that extension set.
 
 Pi reports the session as idle while an extension-requested manual compaction is running. SoL-Pi cancels `session_before_tree` during that interval to prevent tree navigation from moving the active leaf underneath the compaction. Navigation works normally after the compaction callback settles.
 
@@ -59,7 +73,7 @@ The standalone entry passes `cacheWriteReadRatio` from `sol-pi.json` directly in
 
 ## Interactive TUI
 
-The lightning savings treatment uses Pi 0.85.1's public `renderCall`,
+The lightning savings treatment uses Pi 1.2.0's public `renderCall`,
 `renderResult`, `ctx.ui.notify()`, and keyed `ctx.ui.setStatus()` APIs. It checks
 `ctx.mode === "tui"` rather than `ctx.hasUI`, because RPC mode also reports UI
 support. The renderer therefore changes only the interactive terminal display;
@@ -68,8 +82,8 @@ events, print output, or RPC UI requests.
 
 ## Test doubles
 
-The test suite drives every extension through the same public `ExtensionAPI` and `ExtensionContext` surface Pi provides, over a real public `SessionManager`, without calling a remote model provider. That keeps the suite zero-spend and independent of the deleted Pi monorepo test harness. Suites that need a genuine session tree — branch order, compaction entries, custom entries, resume — use `SessionManager.inMemory()` or `SessionManager.create()` rather than reimplementing them.
+The test suite drives every extension through the same public `ExtensionAPI`, `ExtensionContext`, and `ExtensionToolContext` surfaces Pi provides, over a real public `SessionManager`, without calling a remote model provider. That keeps the suite zero-spend and independent of the deleted Pi monorepo test harness. Suites that need a genuine session tree — branch order, compaction entries, custom entries, resume — use `SessionManager.inMemory()` or `SessionManager.create()` rather than reimplementing them.
 
-`tests/pi-package-integration.test.ts` loads the actual TypeScript entrypoint through Pi's `DefaultResourceLoader`, reads a trusted all-enabled project configuration, and executes a fused write/command and a plan update in a real `AgentSession`. `tests/online-context-compact-agent-session.test.ts` verifies one and two consecutive native compactions and waits for automatic continuation before the original prompt returns. These integration tests use Pi's deterministic faux provider; they verify runtime compatibility, not live provider authentication or token savings.
+`tests/pi-package-integration.test.ts` loads the actual TypeScript entrypoint through Pi's `DefaultResourceLoader`, reads a trusted all-enabled project configuration, and executes a fused write/command and a plan update in a real `AgentSession`. It checks both exit 0 and exit 7 in persistent and in-memory sessions, including the error flag in the session transcript and preservation of the written file. `tests/online-context-compact-agent-session.test.ts` verifies one and two consecutive native compactions and waits for automatic continuation before the original prompt returns. `tests/online-context-compact-cli.test.ts` also resumes a disk-backed session through the actual Pi 1.2.0 print CLI and verifies that compaction, the hidden reminder, and the final reply persist before process exit. Offline RPC startup tests cover both all-enabled and Action Fusion plus ObservationPack configurations. These integration tests use Pi's deterministic faux provider; they verify runtime compatibility, not live provider authentication or token savings.
 
-The 0.84.2 backward-compatibility run used an isolated copy of the current source and tests, separate dependencies, and an empty Pi agent directory. Only the copy's four Pi development dependency versions, lockfile, and installation-guide version mentions changed. No source or test changes were needed. The run included all four mechanisms and the native compaction/continuation integration tests; it did not repeat live-provider benchmarks on 0.84.2.
+Historically, upstream's 0.84.2 backward-compatibility run used an isolated copy of its then-current source and tests, separate dependencies, and an empty Pi agent directory. Only the copy's four Pi development dependency versions, lockfile, and installation-guide version mentions changed. No source or test changes were needed. The run included all four mechanisms and the native compaction/continuation integration tests; it did not repeat live-provider benchmarks on 0.84.2.

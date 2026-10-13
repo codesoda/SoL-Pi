@@ -15,7 +15,7 @@
 > [!NOTE]
 > This repository contains the open-source version of SoL-Pi, a standalone extension for [Pi](https://github.com/earendil-works/pi). It is not an official distribution of Pi.
 >
-> SoL-Pi is under active development to support pi-v1 and the latest model checkpoints.
+> This fork targets Pi 1.2.0. Older Pi releases are not supported by this branch.
 
 ## 💡 TL;DR
 
@@ -63,26 +63,28 @@ Read our paper: [SoL-Pi: Recursively Scaling Auto-Research Loops for Efficient A
 
 - Node.js 22.19 or newer
 - npm
-- `@earendil-works/pi-coding-agent` 0.85.1
+- `@earendil-works/pi-coding-agent` 1.2.0
 
 ### Install
 
 Install the tested Pi release:
 
 ```bash
-npm install --global @earendil-works/pi-coding-agent@0.85.1
+npm install --global @earendil-works/pi-coding-agent@1.2.0
 ```
 
-Then install SoL-Pi directly from [NVlabs/SoL-Pi](https://github.com/NVlabs/SoL-Pi):
+Install this compatibility branch from [codesoda/SoL-Pi](https://github.com/codesoda/SoL-Pi/tree/fix/pi-1.2-compat):
 
 ```bash
-pi install git:github.com/NVlabs/SoL-Pi
+pi install git:github.com/codesoda/SoL-Pi@fix/pi-1.2-compat
 ```
+
+If upstream SoL-Pi is already installed, remove that package first so both copies do not register the same tools.
 
 To install it only for the current project, use the project-local scope:
 
 ```bash
-pi install git:github.com/NVlabs/SoL-Pi --local --approve
+pi install git:github.com/codesoda/SoL-Pi@fix/pi-1.2-compat --local --approve
 ```
 
 ### Configure
@@ -149,7 +151,7 @@ npm audit --audit-level=high
 node scripts/check-pi-compat.mjs
 ```
 
-`npm run check` covers TypeScript, the complete test suite, and package inspection. The development dependency set is pinned to Pi 0.85.1; runtime Pi packages remain peer dependencies so Pi owns their installation and upgrades.
+`npm run check` covers TypeScript, the complete test suite, and package inspection. The development dependency set is pinned to Pi 1.2.0; runtime Pi packages remain peer dependencies so Pi owns their installation and upgrades.
 
 ## Project Status
 
