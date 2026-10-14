@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -14,6 +14,7 @@ import {
 	createObservationPackExtension,
 	FULL_SENDS,
 	THRESHOLD_BYTES,
+	type ObservationPackThresholdsKiB,
 } from "../src/sol-pi/extensions/observation-pack/index.ts";
 import { componentText, FakePi, FakeSessionManager, fakeContext, plainTheme } from "./helpers.ts";
 import { runtimeRoot } from "../src/sol-pi/runtime-paths.ts";
@@ -33,9 +34,9 @@ async function sessionRoot(): Promise<string> {
 	return value;
 }
 
-function observationPackPi(): FakePi {
+function observationPackPi(thresholdsKiB?: ObservationPackThresholdsKiB): FakePi {
 	const pi = new FakePi();
-	createObservationPackExtension()(pi.asExtensionApi());
+	createObservationPackExtension(thresholdsKiB)(pi.asExtensionApi());
 	return pi;
 }
 
@@ -94,6 +95,78 @@ function captureConsoleErrors(): string[] {
 }
 
 describe("observation pack", () => {
+	it.each([
+		{ label: "omitted map", thresholds: undefined, tool: "bash", bytes: 10 * 1024, packed: false },
+		{ label: "default boundary", thresholds: {}, tool: "bash", bytes: 10 * 1024 + 1, packed: true },
+		{ label: "override boundary", thresholds: { bash: 4 }, tool: "bash", bytes: 4 * 1024, packed: false },
+		{ label: "lower override", thresholds: { bash: 4 }, tool: "bash", bytes: 4 * 1024 + 1, packed: true },
+		{ label: "fallback without default", thresholds: { bash: 4 }, tool: "read", bytes: 5 * 1024, packed: false },
+		{ label: "configured default", thresholds: { default: 4 }, tool: "read", bytes: 5 * 1024, packed: true },
+		{ label: "higher override", thresholds: { default: 4, read: 16 }, tool: "read", bytes: 12 * 1024, packed: false },
+		{ label: "case-sensitive names", thresholds: { Bash: 4 }, tool: "bash", bytes: 5 * 1024, packed: false },
+		{ label: "no wildcard matching", thresholds: { "ba*": 4 }, tool: "bash", bytes: 5 * 1024, packed: false },
+		{ label: "no inherited property override", thresholds: { default: 4 }, tool: "constructor", bytes: 5 * 1024, packed: true },
+	])("selects the threshold: $label", async ({ thresholds, tool, bytes, packed }) => {
+		const sessionDir = await sessionRoot();
+		const body = "x".repeat(bytes);
+		const message = toolResult(body, { toolName: tool });
+		const pi = observationPackPi(thresholds as ObservationPackThresholdsKiB | undefined);
+		const outputs = await project(pi, message, sessionDir, 4);
+		expect(outputs.slice(0, 2)).toEqual([body, body]);
+		if (packed) {
+			expect(outputs[2]).toMatch(/^\[large tool result replaced/u);
+			expect(outputs[3]).toBe(outputs[2]);
+			expect(await readFile(observationPath(sessionDir, observationId(message)), "utf8")).toBe(body);
+		} else {
+			expect(outputs).toEqual([body, body, body, body]);
+			expect(await readdir(sessionDir)).toEqual([]);
+		}
+		expect(resultText(message)).toBe(body);
+	});
+
+	it("uses UTF-8 bytes and counts separators between text blocks", async () => {
+		const sessionDir = await sessionRoot();
+		const exact = "é".repeat(2048);
+		expect(Buffer.byteLength(exact)).toBe(4096);
+		expect(await project(observationPackPi({ bash: 4 }), toolResult(exact), sessionDir, 3)).toEqual([exact, exact, exact]);
+		const message = toolResult("", { content: [{ type: "text", text: exact.slice(0, 1024) }, { type: "text", text: exact.slice(1024) }] });
+		const body = resultText(message);
+		expect(Buffer.byteLength(body)).toBe(4097);
+		const outputs = await project(observationPackPi({ bash: 4 }), message, sessionDir, 3);
+		expect(outputs.slice(0, 2)).toEqual([body, body]);
+		expect(outputs[2]).toMatch(/^\[large tool result replaced/u);
+	});
+
+	it("snapshots thresholds and handles own prototype-named tool overrides safely", async () => {
+		const sessionDir = await sessionRoot();
+		const thresholds = JSON.parse('{"default":10,"__proto__":4,"constructor":4,"toString":4}');
+		const pi = observationPackPi(thresholds);
+		thresholds.__proto__ = 100;
+		for (const toolName of ["__proto__", "constructor", "toString"]) {
+			const outputs = await project(pi, toolResult("x".repeat(5 * 1024), { toolName, toolCallId: toolName }), sessionDir, 3);
+			expect(outputs[2]).toMatch(/^\[large tool result replaced/u);
+		}
+	});
+
+	it("still excludes errors, mixed content, and receipts with a lowered threshold", async () => {
+		const sessionDir = await sessionRoot();
+		const text = "x".repeat(5 * 1024);
+		const messages = [
+			toolResult(text, { isError: true }),
+			toolResult(text, { content: [{ type: "text", text }, { type: "image", data: "AA==", mimeType: "image/png" }] }),
+			toolResult(`sol_pi_evidence_receipt_v1\n${text}`),
+		];
+		for (const message of messages) {
+			const outputs = await project(observationPackPi({ default: 4 }), message, sessionDir, 3);
+			expect(outputs).toEqual(Array(3).fill(resultText(message)));
+		}
+		expect(await readdir(sessionDir)).toEqual([]);
+	});
+
+	it.each([0, -1, 1.5, NaN, Infinity])("rejects invalid programmatic thresholds before registering handlers: %s", (value) => {
+		expect(() => createObservationPackExtension({ bash: value })).toThrow("observationPackThresholdsKiB.bash");
+	});
+
 	it("archives and recalls large observations without a session directory", async () => {
 		const manager = SessionManager.inMemory();
 		const context = fakeContext("", { sessionManager: manager });

@@ -10,6 +10,11 @@ import {
 	DEFAULT_REDUCER_MODEL,
 	DEFAULT_REDUCER_PROVIDER,
 } from "./extensions/evidence-preserving-reducer/config.ts";
+import {
+	DEFAULT_OBSERVATION_PACK_THRESHOLDS_KIB,
+	normalizeObservationPackThresholdsKiB,
+	type ObservationPackThresholdsKiB,
+} from "./extensions/observation-pack/config.ts";
 
 export const DEFAULT_CACHE_WRITE_READ_RATIO = 12.5;
 
@@ -17,6 +22,7 @@ export interface SolPiConfig {
 	readonly version: 1;
 	readonly actionFusion: boolean;
 	readonly observationPack: boolean;
+	readonly observationPackThresholdsKiB: ObservationPackThresholdsKiB;
 	readonly evidencePreservingReducer: boolean;
 	readonly evidencePreservingReducerModel: string;
 	readonly evidencePreservingReducerProvider: string;
@@ -28,6 +34,7 @@ export const DEFAULT_CONFIG: SolPiConfig = Object.freeze({
 	version: 1,
 	actionFusion: false,
 	observationPack: false,
+	observationPackThresholdsKiB: DEFAULT_OBSERVATION_PACK_THRESHOLDS_KIB,
 	evidencePreservingReducer: false,
 	evidencePreservingReducerModel: DEFAULT_REDUCER_MODEL,
 	evidencePreservingReducerProvider: DEFAULT_REDUCER_PROVIDER,
@@ -42,7 +49,7 @@ const FEATURE_KEYS = [
 	"onlineContextCompact",
 ] as const;
 const STRING_KEYS = ["evidencePreservingReducerModel", "evidencePreservingReducerProvider"] as const;
-const CONFIG_KEYS = new Set<string>(["version", ...FEATURE_KEYS, ...STRING_KEYS, "cacheWriteReadRatio"]);
+const CONFIG_KEYS = new Set<string>(["version", ...FEATURE_KEYS, ...STRING_KEYS, "cacheWriteReadRatio", "observationPackThresholdsKiB"]);
 
 export function findConfigPath(
 	cwd = process.cwd(),
@@ -112,12 +119,20 @@ export function loadSolPiConfig(
 		path,
 	);
 
+	let observationPackThresholdsKiB: ObservationPackThresholdsKiB;
+	try {
+		observationPackThresholdsKiB = normalizeObservationPackThresholdsKiB(record.observationPackThresholdsKiB);
+	} catch (error) {
+		throw new Error(`SoL-Pi config ${error instanceof Error ? error.message : String(error)}: ${path}`);
+	}
+
 	return Object.freeze({
 		...DEFAULT_CONFIG,
 		...record,
 		cacheWriteReadRatio,
 		evidencePreservingReducerModel,
 		evidencePreservingReducerProvider,
+		observationPackThresholdsKiB,
 	}) as SolPiConfig;
 }
 

@@ -155,7 +155,10 @@ it.each([false, true])("starts and shuts down the offline RPC CLI without a prom
 	}
 }, 30_000);
 
-it("archives tool output with the real Pi --no-session CLI and retains it after exit", async () => {
+it.each([
+	{ label: "default threshold", thresholds: {}, repeats: 800 },
+	{ label: "per-tool threshold", thresholds: { read: 4 }, repeats: 250 },
+])("packs and retains tool output with the real Pi --no-session CLI ($label)", async ({ thresholds, repeats }) => {
 	const cwd = await mkdtemp(join(tmpdir(), "sol-pi-no-session-"));
 	try {
 		const agentDir = join(cwd, "agent");
@@ -169,9 +172,12 @@ it("archives tool output with the real Pi --no-session CLI and retains it after 
 			observationPack: true,
 			evidencePreservingReducer: true,
 			onlineContextCompact: true,
+			// Deliberately omit `default`: all other tools still use 10 KiB.
+			observationPackThresholdsKiB: thresholds,
 		}));
-		const body = "ephemeral CLI evidence\n".repeat(800);
+		const body = "ephemeral CLI evidence\n".repeat(repeats);
 		await writeFile(join(cwd, "evidence.txt"), body);
+		await writeFile(join(cwd, "small.txt"), "small follow-up result");
 		const providerPath = join(cwd, "test-provider.ts");
 		const fauxPath = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai/providers/faux"));
 		await writeFile(providerPath, `
@@ -183,6 +189,8 @@ export default function (pi) {
 	});
 	faux.setResponses([
 		fauxAssistantMessage(fauxToolCall("read", { path: "evidence.txt" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("read", { path: "small.txt" }), { stopReason: "toolUse" }),
+		fauxAssistantMessage(fauxToolCall("read", { path: "small.txt" }), { stopReason: "toolUse" }),
 		fauxAssistantMessage("no-session smoke complete"),
 	]);
 	pi.registerProvider(faux.provider);
@@ -215,6 +223,10 @@ export default function (pi) {
 		const objects = await readdir(objectsDir);
 		expect(objects).toHaveLength(1);
 		expect(await readFile(join(objectsDir, objects[0]!), "utf8")).toBe(body);
+		const ledger = (await readFile(join(temporaryDir, roots[0]!, "observation-pack", "ledger.jsonl"), "utf8"))
+			.trim().split("\n").map((line) => JSON.parse(line));
+		expect(ledger.map((entry) => entry.event)).toEqual(["full", "full", "placeholder"]);
+		expect(ledger[2].originalBytes).toBe(Buffer.byteLength(body));
 		expect((await readdir(agentDir, { recursive: true })).some((name) => name.endsWith(".jsonl"))).toBe(false);
 	} finally {
 		await rm(cwd, { recursive: true, force: true });

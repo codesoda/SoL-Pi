@@ -8,9 +8,10 @@ import { type FileHandle, lstat, mkdir, open } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { TextContent, ToolResultMessage } from "@earendil-works/pi-ai";
+import { DEFAULT_OBSERVATION_PACK_THRESHOLDS_KIB } from "./config.ts";
 
-/** Only tool results larger than this participate. */
-export const THRESHOLD_BYTES = 10 * 1024;
+/** Default minimum size; callers can supply a configured per-tool threshold. */
+export const THRESHOLD_BYTES = DEFAULT_OBSERVATION_PACK_THRESHOLDS_KIB.default * 1024;
 /** Provider requests that still carry the full payload before the placeholder takes over. */
 export const FULL_SENDS = 2;
 /** Placeholder excerpt budget, split evenly between head and tail, whole lines only. */
@@ -95,11 +96,15 @@ export function isObservationId(id: string): boolean {
 	return OBSERVATION_ID_PATTERN.test(id);
 }
 
-export function createObservation(message: ToolResultMessage, runtimeRoot: string): Observation | undefined {
+export function createObservation(
+	message: ToolResultMessage,
+	runtimeRoot: string,
+	thresholdBytes = THRESHOLD_BYTES,
+): Observation | undefined {
 	const text = textFromResult(message);
 	if (containsReducerReceipt(text)) return undefined;
 	const bytes = Buffer.byteLength(text, "utf8");
-	if (bytes <= THRESHOLD_BYTES) return undefined;
+	if (bytes <= thresholdBytes) return undefined;
 	if (!runtimeRoot) throw new Error("SoL-Pi runtime directory is unavailable");
 
 	const contentHash = hash(text);

@@ -3,13 +3,13 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AssistantMessage, Context, Model } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Context, Model, ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ExtensionContext, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_CONFIG } from "../src/sol-pi/config.ts";
+import { DEFAULT_CONFIG, loadSolPiConfig } from "../src/sol-pi/config.ts";
 import { REDUCER_RECEIPT_SCHEMA } from "../src/sol-pi/extensions/evidence-preserving-reducer/index.ts";
 import { createSolPiExtension, registerConfiguredFeatures } from "../src/sol-pi/index.ts";
 import { FakePi, fakeContext } from "./helpers.ts";
@@ -99,6 +99,32 @@ describe("SoL-Pi entrypoint", () => {
 		expect(loader).toHaveBeenCalledOnce();
 		expect(pi.registeredTools.map((tool) => tool.name)).toEqual(["obs_recall"]);
 		expect([...pi.handlers.keys()].sort()).toEqual(["context", "session_start"]);
+	});
+
+	it("passes file-configured tool thresholds into ObservationPack", async () => {
+		const root = mkdtempSync(join(tmpdir(), "sol-pi-configured-thresholds-"));
+		try {
+			writeFileSync(join(root, "sol-pi.json"), JSON.stringify({
+				version: 1, observationPack: true, observationPackThresholdsKiB: { bash: 4 },
+			}));
+			const pi = new FakePi();
+			createSolPiExtension(() => loadSolPiConfig(root, root))(pi.asExtensionApi());
+			const ctx = fakeContext(root);
+			await pi.emit("session_start", { type: "session_start" }, ctx);
+			const body = "diagnostic line\n".repeat(350);
+			const messages: ToolResultMessage[] = ["bash", "read"].map((toolName) => ({
+				role: "toolResult", toolName, toolCallId: toolName,
+				content: [{ type: "text", text: body }], isError: false, timestamp: 1,
+			}));
+			for (let request = 0; request < 2; request++) {
+				expect(await pi.emitContext(messages, ctx)).toEqual(messages);
+			}
+			const projected = await pi.emitContext(messages, ctx);
+			expect(projected[0]).toMatchObject({ content: [{ type: "text", text: expect.stringContaining("[large tool result replaced") }] });
+			expect(projected[1]).toEqual(messages[1]);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	});
 
 	it("passes the configured reducer provider/model route into EPR", async () => {

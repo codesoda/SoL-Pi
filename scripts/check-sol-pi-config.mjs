@@ -16,7 +16,7 @@ const DEFAULT_CACHE_WRITE_READ_RATIO = 12.5;
 const DEFAULT_EPR_REDUCER_PROVIDER = ["openai", "codex"].join("-");
 const DEFAULT_EPR_REDUCER_MODEL = ["gpt-5.6", "luna"].join("-");
 const STRING_KEYS = ["evidencePreservingReducerModel", "evidencePreservingReducerProvider"];
-const CONFIG_KEYS = new Set(["version", ...FEATURE_KEYS, ...STRING_KEYS, "cacheWriteReadRatio"]);
+const CONFIG_KEYS = new Set(["version", ...FEATURE_KEYS, ...STRING_KEYS, "cacheWriteReadRatio", "observationPackThresholdsKiB"]);
 
 function fail(message) {
 	throw new Error(message);
@@ -85,6 +85,7 @@ function validateConfig(value, requireAllEnabled) {
 		fail("cacheWriteReadRatio must be a finite non-negative number");
 	}
 	effective.cacheWriteReadRatio = cacheWriteReadRatio;
+	effective.observationPackThresholdsKiB = observationPackThresholds(value.observationPackThresholdsKiB);
 	effective.evidencePreservingReducerModel = stringConfigValue(
 		value,
 		"evidencePreservingReducerModel",
@@ -101,6 +102,23 @@ function validateConfig(value, requireAllEnabled) {
 		all_enabled: FEATURE_KEYS.every((key) => effective[key] === true),
 		effective_config: effective,
 	};
+}
+
+// Keep validation aligned with observation-pack/config.ts; parity is covered by tests.
+function observationPackThresholds(value = {}) {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		fail("observationPackThresholdsKiB must be a JSON object");
+	}
+	const maxKiB = Math.floor(Number.MAX_SAFE_INTEGER / 1024);
+	for (const [tool, threshold] of Object.entries(value)) {
+		if (tool.length === 0 || /\s/u.test(tool)) {
+			fail("observationPackThresholdsKiB keys must be non-empty tool names without whitespace");
+		}
+		if (typeof threshold !== "number" || !Number.isSafeInteger(threshold) || threshold <= 0 || threshold > maxKiB) {
+			fail(`observationPackThresholdsKiB.${tool} must be a positive integer KiB value no greater than ${maxKiB}`);
+		}
+	}
+	return { default: 10, ...value };
 }
 
 function stringConfigValue(value, key, defaultValue) {

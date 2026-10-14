@@ -19,6 +19,7 @@ The project file replaces the global file. SoL-Pi does not merge them.
   "version": 1,
   "actionFusion": false,
   "observationPack": false,
+  "observationPackThresholdsKiB": { "default": 10 },
   "evidencePreservingReducer": false,
   "evidencePreservingReducerProvider": "provider-id",
   "evidencePreservingReducerModel": "model-id",
@@ -43,11 +44,39 @@ This preflight does not make every valid SoL-Pi configuration all-enabled. Witho
 
 - `actionFusion`: registers SoL-Pi replacements for Pi's `edit` and `write` tools.
 - `observationPack`: registers `obs_recall` and a provider-context projection handler.
+- `observationPackThresholdsKiB`: sets the optional default and per-tool minimum result sizes in KiB.
 - `evidencePreservingReducer`: registers a `tool_result` handler and delegates long diagnostic-log reduction to the configured reducer provider/model.
 - `evidencePreservingReducerProvider`: provider namespace used to resolve the reducer model through Pi's model registry.
 - `evidencePreservingReducerModel`: model id used for Evidence-Preserving Reducer.
 - `onlineContextCompact`: registers `update_plan` and boundary-driven native compaction after the other SoL-Pi context transformers.
 - `cacheWriteReadRatio`: supplies the single economic decision ratio used by Online Context Compact.
+
+## ObservationPack thresholds
+
+Use one optional map to override thresholds. For example, this configuration enables ObservationPack, uses 4 KiB for `bash`, and keeps the built-in 10 KiB fallback for every other tool:
+
+```json
+{
+  "version": 1,
+  "observationPack": true,
+  "observationPackThresholdsKiB": {
+    "bash": 4
+  }
+}
+```
+
+Add `"default": 8` inside the map to change the fallback to 8 KiB. Tool-specific entries take precedence over that fallback. Omission of the map, an empty map, or omission of `default` keeps the 10 KiB fallback. The map alone does not enable ObservationPack.
+
+- Values must be positive integer KiB counts, not strings such as `"4KiB"`. One KiB is 1,024 bytes. Zero, fractions, non-finite numbers, and values whose byte count exceeds JavaScript's safe integer range are rejected.
+- Tool names match exactly and are case-sensitive; wildcards are not expanded. Keys must be non-empty and contain no whitespace. `default` is reserved for the fallback.
+- Eligibility uses the UTF-8 byte count of text blocks joined with newlines. Only results **strictly larger** than the selected threshold qualify.
+- The tool name belongs to the result, not to commands inside it. Action Fusion results use `write` or `edit`, not `bash`.
+- Errors, mixed text/image results, and reducer receipts remain excluded. The first two requests still receive the full output. Archive, placeholder, and recall behavior are unchanged.
+- Small thresholds can produce a placeholder larger than the original result, increase recall work, and cause more cached-prefix changes. A lower threshold does not guarantee lower cost.
+
+The project file still replaces the entire global file, including this map. A project map with only `bash: 4` uses the built-in fallback of 10 KiB, even if the global file sets a different `default`. Include `observationPack: true` in the selected file to enable the feature.
+
+The programmatic factory accepts the same map: `createObservationPackExtension({ bash: 4 })`. Thresholds are validated and snapshotted when the extension is created; changing the original map does not affect a running instance.
 
 ## Evidence-Preserving Reducer runtime inputs
 

@@ -25,6 +25,11 @@ import { runtimeRoot } from "../../runtime-paths.ts";
 import { formatSavingsCount, renderSolPiTool, showSolPiSavings } from "../../tui.ts";
 import { createLedger, type Ledger } from "./ledger.ts";
 import {
+	normalizeObservationPackThresholdsKiB,
+	observationThresholdBytes,
+	type ObservationPackThresholdsKiB,
+} from "./config.ts";
+import {
 	countLines,
 	createObservation,
 	ensureStored,
@@ -48,7 +53,8 @@ const RECALL_LIMITS = {
 	maxLines: RECALL_MAX_LINES - RECALL_HEADER_LINES,
 };
 
-export function createObservationPackExtension(): ExtensionFactory {
+export function createObservationPackExtension(thresholdsKiB?: ObservationPackThresholdsKiB): ExtensionFactory {
+	const thresholds = normalizeObservationPackThresholdsKiB(thresholdsKiB);
 	return (pi: ExtensionAPI) => {
 		const sentCounts = new Map<string, number>();
 		const ledgers = new Map<string, Ledger>();
@@ -153,7 +159,7 @@ export function createObservationPackExtension(): ExtensionFactory {
 				if (!message || !isPureTextResult(message)) continue;
 
 				try {
-					const observation = createObservation(message, root);
+					const observation = createObservation(message, root, observationThresholdBytes(thresholds, message.toolName));
 					if (!observation) continue;
 					await ensureStored(observation);
 
@@ -220,8 +226,10 @@ export {
 	THRESHOLD_BYTES,
 } from "./observation.ts";
 
-export function registerObservationPack(pi: ExtensionAPI): void {
-	createObservationPackExtension()(pi);
+export type { ObservationPackThresholdsKiB } from "./config.ts";
+
+export function registerObservationPack(pi: ExtensionAPI, thresholdsKiB?: ObservationPackThresholdsKiB): void {
+	createObservationPackExtension(thresholdsKiB)(pi);
 }
 
 export default registerObservationPack;

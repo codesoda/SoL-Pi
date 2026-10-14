@@ -2,6 +2,7 @@
 	"version": 1,
 	"actionFusion": false,
 	"observationPack": false,
+	"observationPackThresholdsKiB": { "default": 10 },
 	"evidencePreservingReducer": false,
 	"evidencePreservingReducerProvider": "provider-id",
 	"evidencePreservingReducerModel": "model-id",
