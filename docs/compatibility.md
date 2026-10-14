@@ -71,14 +71,22 @@ Online Context Compact reads `ExtensionContext.getContextUsage()` for both the c
 
 The standalone entry passes `cacheWriteReadRatio` from `sol-pi.json` directly into Online Context Compact's economic check. It does not inspect model price metadata. Changing models during a session does not change the ratio; users who want a different decision policy update the configuration and start a new session.
 
-## Interactive TUI
+## UI feedback
 
 The lightning savings treatment uses Pi 1.2.0's public `renderCall`,
-`renderResult`, `ctx.ui.notify()`, and keyed `ctx.ui.setStatus()` APIs. It checks
-`ctx.mode === "tui"` rather than `ctx.hasUI`, because RPC mode also reports UI
-support. The renderer therefore changes only the interactive terminal display;
-it does not change session messages, provider requests, tool results, JSON
-events, print output, or RPC UI requests.
+`renderResult`, `ctx.ui.notify()`, and keyed `ctx.ui.setStatus()` APIs.
+Info notifications run in both TUI and RPC modes. Pi forwards RPC notices as
+`extension_ui_request` records with method `notify`; clients such as Paseo can
+show them in their own timeline without adding model messages.
+
+Footer status updates and their four-second cleanup timer remain TUI-only.
+Custom tool renderers are also terminal presentation, not RPC tool-card renderers.
+The feedback helper remains silent in JSON and print modes. These UI notices do
+not alter session messages, provider requests, or tool results.
+
+Action Fusion notifies after a successful fused command. ObservationPack notifies
+only when a result first becomes a placeholder, not on every subsequent replay.
+Reported savings are round-trip/token estimates, not measured currency savings.
 
 ## Test doubles
 

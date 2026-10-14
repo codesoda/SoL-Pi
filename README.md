@@ -113,6 +113,8 @@ ObservationPack defaults to a 10 KiB threshold. To pack smaller `bash` results, 
 
 Enable additional mechanisms only after reviewing their configuration and security implications. SoL-Pi uses no dedicated environment variables; feature flags, observation thresholds, the reducer provider/model route, and the compaction ratio are configured in `sol-pi.json`. See [sol-pi.example.json](sol-pi.example.json) for a template listing every key.
 
+SoL-Pi shows info notifications in Pi's terminal and RPC clients that support them, including Paseo. Footer status and custom tool labels remain terminal-only. Notifications do not add model context; reported savings are estimates rather than measured currency savings.
+
 For the complete schema, see [Configuration](docs/configuration.md). Coding agents and automated environments should follow the canonical [agent installation and configuration protocol](agents-install.md), which describes an all-enabled configuration checked with `scripts/check-sol-pi-config.mjs --require-all-enabled`.
 
 ## Storage and Security

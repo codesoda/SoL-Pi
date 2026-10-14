@@ -51,7 +51,7 @@ describe("SoL-Pi TUI savings presentation", () => {
 		expect(formatSavingsBytes(78_200)).toBe("76.4 KiB removed from future prompts");
 	});
 
-	it("shows and clears a TUI-only notification and footer status", () => {
+	it("shows a TUI notification and clears its footer status", () => {
 		vi.useFakeTimers();
 		const { context, notify, setStatus } = uiContext("tui");
 
@@ -69,7 +69,19 @@ describe("SoL-Pi TUI savings presentation", () => {
 		expect(setStatus).toHaveBeenLastCalledWith("sol-pi-savings", undefined);
 	});
 
-	it.each(["rpc", "json", "print"] as const)("does not emit presentation in %s mode", (mode) => {
+	it.each(["Action Fusion", "Observation Pack", "Luna Delegating", "Online Context Compact"] as const)(
+		"emits an RPC info notification without footer updates or timers for %s",
+		(mechanism) => {
+			vi.useFakeTimers();
+			const { context, notify, setStatus } = uiContext("rpc");
+			showSolPiSavings(context, mechanism, "probe saving");
+			expect(notify).toHaveBeenCalledExactlyOnceWith(`⚡ SoL-Pi · ${mechanism}\nMoney saved · probe saving`, "info");
+			expect(setStatus).not.toHaveBeenCalled();
+			expect(vi.getTimerCount()).toBe(0);
+		},
+	);
+
+	it.each(["json", "print"] as const)("does not emit presentation in %s mode", (mode) => {
 		const { context, notify, setStatus } = uiContext(mode);
 
 		showSolPiSavings(context, "Action Fusion", "1 model round-trip avoided");

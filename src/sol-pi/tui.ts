@@ -54,9 +54,11 @@ export function showSolPiSavings(
 	mechanism: SolPiTuiMechanism,
 	saving: string,
 ): void {
-	if (context.mode !== "tui") return;
+	if (context.mode !== "tui" && context.mode !== "rpc") return;
 	const message = `⚡ SoL-Pi · ${mechanism}\nMoney saved · ${saving}`;
+	// RPC clients such as Paseo can render notifications without adding model context.
 	context.ui.notify(message, "info");
+	if (context.mode !== "tui") return;
 	context.ui.setStatus(STATUS_KEY, `⚡ ${mechanism} · ${saving}`);
 
 	const previous = statusTimers.get(context.ui);
